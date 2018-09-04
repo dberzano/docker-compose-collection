@@ -1,0 +1,27 @@
+server {
+  listen 443 ssl;
+  listen [::]:443 ssl;
+  server_name _;
+  ssl_certificate /etc/letsencrypt/live/${CERT_FQDN}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/${CERT_FQDN}/privkey.pem;
+  merge_slashes off;
+  rewrite ^(.*?)//+(.*?)$ $1/$2 permanent;
+  location /TARS {
+    proxy_pass http://varnishcache:80;
+    proxy_set_header X-Real-IP ${DOLLAR}remote_addr;
+    proxy_set_header X-Forwarded-For ${DOLLAR}proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Port 443;
+    proxy_set_header Host ${DOLLAR}host;
+  }
+  location / {
+    return 301 http://alice.web.cern.ch/;
+  }
+}
+
+server {
+  listen 80 default_server;
+  listen [::]:80 default_server;
+  server_name _;
+  return 301 https://${DOLLAR}host${DOLLAR}request_uri;
+}

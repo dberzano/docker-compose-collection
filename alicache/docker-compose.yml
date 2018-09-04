@@ -1,0 +1,40 @@
+version: "3"
+services:
+
+  certbot_autorenew:
+    # This is the certbot container. It only needs the letsencrypt directory
+    # for renewing the certificates automatically, it does not need open ports.
+    # For creating a new certificate (also the case if the certificate expired)
+    # you need to run the container interactively
+    build: certbot_autorenew/
+    volumes:
+      - "/docker/letsencrypt:/etc/letsencrypt:rw"
+    restart: always
+
+  varnishcache:
+    # Varnish container based on Alpine. Cache file is automatically created to
+    # fill up the whole target disk, so beware!
+    # See: https://github.com/pixelfusion/docker-alpine-varnish
+    build: varnish_backend/
+    environment:
+      VARNISH_STORAGE_FILE: "/varnishcache/varnishcache.bin"
+    volumes:
+      - "/extra/varnish:/varnishcache:rw"
+      - "./varnish_backend/default.vcl:/etc/varnish/default.vcl:ro"
+    restart: always
+
+  nginx_frontend:
+    # Using a slightly modified nginx image to automatically detect the
+    # certificate's FQDN from letsencrypt, and substitute variables using
+    # envsubst. We need to expose ports 80 and 443
+    build: nginx_frontend/
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/docker/www:/var/www:ro"
+      - "/docker/letsencrypt:/etc/letsencrypt:ro"
+      - "./nginx_frontend/my.conf.template:/etc/nginx/conf.d/my.conf.template:ro"
+    depends_on:
+      - varnishcache
+    restart: always
