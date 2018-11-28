@@ -6,6 +6,7 @@ server {
   ssl_certificate_key /etc/letsencrypt/live/${CERT_FQDN}/privkey.pem;
   merge_slashes off;
   rewrite ^(.*?)//+(.*?)$ $1/$2 permanent;
+  proxy_max_temp_file_size 0;
   location /TARS {
     proxy_pass http://varnishcache:80;
     proxy_set_header X-Real-IP ${DOLLAR}remote_addr;
