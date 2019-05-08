@@ -1,0 +1,23 @@
+version: "3"
+services:
+
+  flask_backend:
+    build: flask_backend/
+    # For debug: one can run the flask_backend only, and uncomment the port section to expose it
+    #ports:
+    # # <outside_port>:<inside_port>
+    # - "80:5000"
+    restart: always
+
+  nginx_frontend:
+    build: nginx_frontend/
+    ports:
+      # <outside_port>:<inside_port>
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "./nginx_frontend/letsencrypt:/etc/letsencrypt:ro"
+      - "./nginx_frontend/my.conf.template:/etc/nginx/conf.d/my.conf.template:ro"
+    depends_on:
+      - flask_backend
+    restart: always
