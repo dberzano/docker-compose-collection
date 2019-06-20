@@ -7,7 +7,7 @@ server {
   merge_slashes off;
   rewrite ^(.*?)//+(.*?)$ $1/$2 permanent;
   proxy_max_temp_file_size 0;
-  location /TARS {
+  location ~ ^/(TARS|repo/RPMS) {
     proxy_pass http://varnishcache:80;
     proxy_set_header X-Real-IP ${DOLLAR}remote_addr;
     proxy_set_header X-Forwarded-For ${DOLLAR}proxy_add_x_forwarded_for;

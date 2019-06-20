@@ -27,9 +27,15 @@ sub vcl_recv {
     unset req.http.cookie;
 
     # Append trailing slash to every URL except .tar.gz
-    if (! req.url ~ "\.tar\.gz$" && ! req.url ~ "/$") {
+    #if (! req.url ~ "\.tar\.gz$" && ! req.url ~ "/$") {
+    #  set req.url = req.url + "/";
+    #}
+
+    # Append trailing slash to every URL whose last component does not look
+    # like a filename with extension
+    if (! req.url ~ "/[^/]*\.[^/]*$" && ! req.url ~ "/$") {
       set req.url = req.url + "/";
-    } 
+    }
 }
 
 sub vcl_backend_response {
@@ -37,6 +43,12 @@ sub vcl_backend_response {
     #
     # Here you clean the response headers, removing silly Set-Cookie headers
     # and other mistakes your backend does.
+
+    # Cache 404 for a short time (one minute)
+    # See http://book.varnish-software.com/4.0/chapters/VCL_Basics.html#the-initial-value-of-beresp-ttl
+    if (beresp.status == 404) {
+        set beresp.ttl = 60s;
+    }
 }
 
 sub vcl_deliver {
