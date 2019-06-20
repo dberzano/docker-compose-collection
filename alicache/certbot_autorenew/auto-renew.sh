@@ -5,6 +5,6 @@ while true; do
     sleep 7200
   else
     echo "`date` We need to renew the certificate (expires before 30 days)"
-    certbot renew --force-renewal && sleep 7200 || sleep 120
+    echo '**I WOULD RUN**' certbot renew --force-renewal && sleep 7200 || sleep 120
   fi
 done

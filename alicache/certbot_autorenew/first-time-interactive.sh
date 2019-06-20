@@ -6,4 +6,4 @@
 
 DRYRUN=
 [[ $1 != --for-real ]] && DRYRUN="echo Dry run (use --for-real as first param to override): " || shift
-$DRYRUN docker run -it --rm -v /docker/letsencrypt:/etc/letsencrypt:rw -p 80:80 -p 443:443 certbot/certbot certonly -d $(hostname -f) --standalone "$@"
+$DRYRUN docker run -it --rm -v /docker/letsencrypt:/etc/letsencrypt:rw -p 80:80 -p 443:443 certbot/certbot certonly -d $(hostname -f) -d alicache.cern.ch --standalone "$@"
