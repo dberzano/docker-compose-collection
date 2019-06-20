@@ -26,15 +26,10 @@ sub vcl_recv {
     set req.http.host = "ali-ci.cern.ch";
     unset req.http.cookie;
 
-    # Append trailing slash to every URL except .tar.gz
-    #if (! req.url ~ "\.tar\.gz$" && ! req.url ~ "/$") {
-    #  set req.url = req.url + "/";
-    #}
-
     # Append trailing slash to every URL whose last component does not look
     # like a filename with extension
     if (! req.url ~ "/[^/]*\.[^/]*$" && ! req.url ~ "/$") {
-      set req.url = req.url + "/";
+        set req.url = req.url + "/";
     }
 }
 
@@ -48,6 +43,13 @@ sub vcl_backend_response {
     # See http://book.varnish-software.com/4.0/chapters/VCL_Basics.html#the-initial-value-of-beresp-ttl
     if (beresp.status == 404) {
         set beresp.ttl = 60s;
+    }
+
+    # In case of 500 errors, try again. We have a single backend and not a
+    # pool, unfortunately
+    # See: https://info.varnish-software.com/blog/configure-saint-mode-grace-varnish-4.1
+    if (beresp.status >= 500) {
+        return (retry);
     }
 }
 
