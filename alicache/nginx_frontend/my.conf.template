@@ -1,28 +1,42 @@
 server {
+
+  # This server section is for HTTPS on port 443
   listen 443 ssl;
   listen [::]:443 ssl;
   server_name _;
+
+  # Paths to the certificates
   ssl_certificate /etc/letsencrypt/live/${CERT_FQDN}/fullchain.pem;
   ssl_certificate_key /etc/letsencrypt/live/${CERT_FQDN}/privkey.pem;
+
+  # The following rules remove double slashes from URLs
   merge_slashes off;
   rewrite ^(.*?)//+(.*?)$ $1/$2 permanent;
+
+  # Disable buffering of proxy responses to temporary files
+  # See: http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_max_temp_file_size
   proxy_max_temp_file_size 0;
+
   location ~ ^/(TARS|repo/RPMS) {
-    proxy_pass http://varnishcache:80;
+    # This location regexp is a reverse proxy to another server
+    proxy_pass http://ali-ci.cern.ch:80;
     proxy_set_header X-Real-IP ${DOLLAR}remote_addr;
     proxy_set_header X-Forwarded-For ${DOLLAR}proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto https;
     proxy_set_header X-Forwarded-Port 443;
     proxy_set_header Host ${DOLLAR}host;
   }
+
   location / {
+    # Any other location is redirected to the ALICE institutional website
     return 301 http://alice.web.cern.ch/;
   }
 }
 
 server {
+  # Server section for HTTP: the only purpose is to redirect everything to HTTPS
   listen 80 default_server;
   listen [::]:80 default_server;
   server_name _;
-  return 301 https://${DOLLAR}host${DOLLAR}request_uri;
+  return 301 https://${DOLLAR}host:6443${DOLLAR}request_uri;
 }
