@@ -17,3 +17,11 @@ Stop:
 Prune unused stuff:
 
     docker system prune -f
+
+TODO
+====
+
+- [ ] Clean up nginx configuration
+- [ ] certbot in nginx container
+- [ ] instructions for persistent directory
+- [ ] service to cache and automatically retry...
