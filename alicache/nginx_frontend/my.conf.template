@@ -1,3 +1,8 @@
+# Defines where to store cached data
+proxy_cache_path /cache/static levels=1:2 keys_zone=STATIC:10m inactive=48h max_size=49G use_temp_path=on;
+proxy_temp_path /cache/tmp;
+proxy_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
+
 server {
 
   # This server section is for HTTPS on port 443
@@ -17,14 +22,26 @@ server {
   # See: http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_max_temp_file_size
   proxy_max_temp_file_size 0;
 
+  ## Append trailing slash to every URL whose last component does not look
+  ## like a filename with extension
+  #if (! req.url ~ "/[^/]*\.[^/]*$" && ! req.url ~ "/$") {
+  #    set req.url = req.url + "/";
+  #}
+
+
+
   location ~ ^/(TARS|repo/RPMS) {
     # This location regexp is a reverse proxy to another server
     proxy_pass http://ali-ci.cern.ch:80;
-    proxy_set_header X-Real-IP ${DOLLAR}remote_addr;
-    proxy_set_header X-Forwarded-For ${DOLLAR}proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto https;
-    proxy_set_header X-Forwarded-Port 443;
-    proxy_set_header Host ${DOLLAR}host;
+
+    # Enable caching
+    proxy_buffering on;
+    proxy_cache STATIC;
+    proxy_cache_valid 200 7d;
+    proxy_cache_use_stale updating http_404;
+    proxy_cache_lock on;
+    proxy_cache_lock_age 240s;
+    proxy_cache_lock_timeout 240s;
   }
 
   location / {
@@ -38,5 +55,5 @@ server {
   listen 80 default_server;
   listen [::]:80 default_server;
   server_name _;
-  return 301 https://${DOLLAR}host:6443${DOLLAR}request_uri;
+  return 301 https://${DOLLAR}host:${NGINX_EXTERNAL_HTTPS_PORT}${DOLLAR}request_uri;
 }

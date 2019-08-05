@@ -1,5 +1,11 @@
 #!/bin/sh
 set -e
+
+# Set some defaults
+: ${NGINX_EXTERNAL_HTTPS_PORT=443}
+: ${NGINX_EXTERNAL_HTTP_PORT=80}
+export NGINX_EXTERNAL_HTTPS_PORT NGINX_EXTERNAL_HTTP_PORT
+
 env \
   CERT_FQDN=`ls -1 /etc/letsencrypt/live | head -n1` \
   DOLLAR='$' \
