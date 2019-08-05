@@ -1,40 +1,44 @@
 version: "3"
 services:
 
-  certbot_autorenew:
-    # This is the certbot container. It only needs the letsencrypt directory
-    # for renewing the certificates automatically, it does not need open ports.
-    # For creating a new certificate (also the case if the certificate expired)
-    # you need to run the container interactively
-    build: certbot_autorenew/
-    volumes:
-      - "/docker/letsencrypt:/etc/letsencrypt:rw"
-    restart: always
-
-  varnishcache:
-    # Varnish container based on Alpine. Cache file is automatically created to
-    # fill up the whole target disk, so beware!
-    # See: https://github.com/pixelfusion/docker-alpine-varnish
-    build: varnish_backend/
+  frontend:
+    build: frontend/
     environment:
-      VARNISH_STORAGE_FILE: "/varnishcache/varnishcache.bin"
-    volumes:
-      - "/extra/varnish:/varnishcache:rw"
-      - "./varnish_backend/default.vcl:/etc/varnish/default.vcl:ro"
-    restart: always
-
-  nginx_frontend:
-    # Using a slightly modified nginx image to automatically detect the
-    # certificate's FQDN from letsencrypt, and substitute variables using
-    # envsubst. We need to expose ports 80 and 443
-    build: nginx_frontend/
+      # make sure the numbers here match the ports in the `ports:` section
+      FRONTEND_EXTERNAL_HTTPS_PORT: 443
+      FRONTEND_EXTERNAL_HTTP_PORT: 80
     ports:
+      # external:internal
       - "80:80"
       - "443:443"
     volumes:
-      - "/docker/www:/var/www:ro"
-      - "/docker/letsencrypt:/etc/letsencrypt:ro"
-      - "./nginx_frontend/my.conf.template:/etc/nginx/conf.d/my.conf.template:ro"
+      # paths beginning with ./ are relative to the dir containing this docker-compose.yml file
+      - "./data/certbot/conf:/etc/letsencrypt:ro"
+      - "./data/certbot/www:/var/www/certbot:ro"
+      - "./frontend/frontend.conf.template:/frontend.conf.template:ro"  # configuration file
     depends_on:
-      - varnishcache
+      - certbot
+      - revproxy
+    restart: always
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      # paths beginning with ./ are relative to the dir containing this docker-compose.yml file
+      - "./data/certbot/conf:/etc/letsencrypt:rw"
+      - "./data/certbot/www:/var/www/certbot:rw"
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    restart: always
+
+  revproxy:
+    build: revproxy/
+    environment:
+      REVPROXY_REDIRECT_INVALID_TO: "https://start.duckduckgo.com"
+      REVPROXY_BACKEND_PREFIX: "http://ali-ci.cern.ch"
+      REVPROXY_LOCAL_ROOT: "/cache"
+      REVPROXY_CACHE_FILE_DURATION: 2592000  # one month
+    command: /revproxy/revproxy.py
+    volumes:
+      # paths beginning with ./ are relative to the dir containing this docker-compose.yml file
+      - "./data/revproxy_cache:/cache:rw"  # cache
     restart: always
