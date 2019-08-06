@@ -1,5 +1,15 @@
 #!/usr/bin/env python
 
+# What is left TODO, what was already done
+# - [X] handle 206
+# - [ ] handle 206 when they are not supported by the backend!
+# - [ ] serve cached content if file exists
+# - [ ] automatically kill/restart the service from time to time
+# - [ ] manage cache growth in a smart way
+# - [ ] make requests wait if same file is already being downloaded
+# - [ ] clean up all .tmp at start
+# - [ ] handle requests in parallel, maybe with a thread pool?
+
 import os
 import requests
 import time
