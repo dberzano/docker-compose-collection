@@ -25,15 +25,12 @@ from twisted.python import log
 
 APP = Klein()
 
-# Standard HTTP client retry parameters
-HTTP_CONN_RETRIES = 10
-HTTP_BACKOFF = 0.4
-HTTP_TIMEOUT_SEC = 15
-
 # Configurable by the user
 CONF = {"REDIRECT_INVALID_TO": None,
         "BACKEND_PREFIX": None,
         "LOCAL_ROOT": None,
+        "HTTP_CONN_RETRIES": 10,
+        "HTTP_TIMEOUT_SEC": 15,
         "HOST": "0.0.0.0",
         "PORT": 8181}
 
@@ -57,33 +54,34 @@ def robust_get(url, dest):
     dest_tmp = dest + ".tmp"
     try:
         os.unlink(dest_tmp)
-    except OSError:
+    except:
         pass
     with open(dest_tmp, "wb"):
         pass
+    log.msg(f"Just created placeholder {dest_tmp}")
 
     # Download file in streaming mode
     size_final = -1
-    for i in range(HTTP_CONN_RETRIES):
+    for i in range(CONF["HTTP_CONN_RETRIES"]):
         if i > 0:
-            pause_sec = HTTP_BACKOFF * (2 ** (i - 1))
+            pause_sec = 0.4 * (1.4 ** (i - 1))
             log.msg(f"Robust {url} -> {dest} failed, retrying in {pause_sec:.2f} s")
             time.sleep(pause_sec)
         try:
             # Determine the size of the file already downloaded
             size_ondisk = os.stat(dest_tmp).st_size
-            log.msg(f"Robust {url} -> {dest}: attempt {i+1}/{HTTP_CONN_RETRIES}. "
-                    "Already downloaded: {size_ondisk} bytes")
+            log.msg(f"Robust {url} -> {dest}: attempt {i+1}/{CONF['HTTP_CONN_RETRIES']}. "
+                    f"Already downloaded: {size_ondisk} bytes")
             if size_final != -1:
                 range_header = {"Range": f"bytes={size_ondisk}-{size_final}"}
             else:
                 range_header = {}
-            resp = requests.get(url, stream=True, timeout=HTTP_TIMEOUT_SEC, headers=range_header)
+            resp = requests.get(url, stream=True, timeout=CONF["HTTP_TIMEOUT_SEC"], headers=range_header)
             size_partial = int(resp.headers.get("Content-Length", "-1"))
             if size_final == -1:
                 size_final = size_partial
             log.msg(f"Robust {url} -> {dest}: gave {resp.status_code}. Left: {size_partial} bytes. "
-                    "Range: bytes={size_ondisk}-{size_final}")
+                    f"Range: bytes={size_ondisk}-{size_final}")
             resp.raise_for_status()
             size_downloaded = 0
             with open(dest_tmp, "ab") as dest_fp:
@@ -97,15 +95,19 @@ def robust_get(url, dest):
             log.msg(f"Robust {url} -> {dest}: OK")
             return True
         except RequestException as exc:
-            if i == HTTP_CONN_RETRIES - 1:
-                log.msg(f"Robust {url} -> {dest}: failed for good")
             try:
-                os.unlink(dest_tmp)
-            except OSError:
-                pass
+                status_code = exc.response.status_code
+            except AttributeError:
+                status_code = -1
+            if status_code == 404 or i == CONF["HTTP_CONN_RETRIES"] - 1:
+                log.msg(f"Robust {url} -> {dest}: failed for good ({status_code})")
+                try:
+                    os.unlink(dest_tmp)
+                except:
+                    pass
+                return False
 
     return False  # if we are here there is an error
-
 
 @APP.route("/", branch=True)
 def process(req):
@@ -134,9 +136,10 @@ def process(req):
     # Probably a JSON. Do not cache it
     backend_uri = backend_uri + "/"
     local_path = os.path.join(local_path, "index.json")
-    if robust_get(backend_uri, local_path):
-        log.msg(f"Requested directory listing downloaded to {local_path}")
     req.setHeader("Content-Type", "application/json")
+    if not robust_get(backend_uri, local_path):
+        req.setResponseCode(404)
+        return ""
     with open(local_path) as json_fp:
         cont = json_fp.read()
     return cont
