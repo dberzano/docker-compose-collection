@@ -135,13 +135,13 @@ def process(req):
 
     backend_uri = CONF["BACKEND_PREFIX"] + uri
 
-    if uri_comp[-1].endswith(".tar.gz"):
-        # Probably a file. Cache it
+    if "." in uri_comp[-1]:
+        # Has an extension -> treat as file
         if robust_get(backend_uri, local_path):
             log.msg(f"Requested file downloaded to {local_path}")
         return File(CONF["LOCAL_ROOT"])
 
-    # Probably a JSON. Do not cache it
+    # No extension -> treat as directory index in JSON
     backend_uri = backend_uri + "/"
     local_path = os.path.join(local_path, "index.json")
     req.setHeader("Content-Type", "application/json")
