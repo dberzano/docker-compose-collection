@@ -5,7 +5,7 @@ services:
     build: revproxy/
     environment:
       REVPROXY_REDIRECT_INVALID_TO: "http://alice.web.cern.ch"
-      REVPROXY_BACKEND_PREFIXo: "http://ali-ci.cern.ch"
+      REVPROXY_BACKEND_PREFIX: "http://ali-ci.cern.ch"
       REVPROXY_LOCAL_ROOT: "/"
     ports:
       # external:internal
