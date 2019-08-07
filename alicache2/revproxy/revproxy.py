@@ -21,6 +21,7 @@ import requests
 from requests.exceptions import RequestException
 from klein import Klein
 from twisted.web.static import File
+from twisted.web.resource import Resource
 from twisted.python import log
 
 APP = Klein()
@@ -114,8 +115,8 @@ def process(req):
     """Process every URL.
     """
 
-    uri = req.uri.decode("utf-8")
-    uri_comp = [x for x in uri.split("/") if x]
+    orig_uri = req.uri.decode("utf-8")
+    uri_comp = [x for x in orig_uri.split("/") if x]
     if not uri_comp or uri_comp[0] != "TARS":
         # Illegal URL: redirect to the ALICE institutional website
         req.setResponseCode(301)  # moved permanently
@@ -125,6 +126,13 @@ def process(req):
     uri = "/".join(uri_comp)  # normalized
     local_path = os.path.join(CONF["LOCAL_ROOT"], uri)
     uri = "/" + uri
+    if uri != orig_uri:
+        # Return a permanent redirect to the normalized URL
+        log.msg(f"URI was normalized, {orig_uri} != {uri}: redirecting")
+        req.setResponseCode(301)
+        req.setHeader("Location", uri)
+        return ""
+
     backend_uri = CONF["BACKEND_PREFIX"] + uri
 
     if uri_comp[-1].endswith(".tar.gz"):
