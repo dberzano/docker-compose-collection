@@ -1,0 +1,17 @@
+version: "3"
+services:
+
+  revproxy:
+    build: revproxy/
+    environment:
+      REVPROXY_REDIRECT_INVALID_TO: "http://alice.web.cern.ch"
+      REVPROXY_BACKEND_PREFIXo: "http://ali-ci.cern.ch"
+      REVPROXY_LOCAL_ROOT: "/"
+    ports:
+      # external:internal
+      - "6080:8181"
+    command: /revproxy/revproxy.py
+    volumes:
+      - "./persistent/revproxy_cache:/cache:rw"  # cache
+      - "./revproxy:/revproxy:ro"                # executable
+    restart: always
