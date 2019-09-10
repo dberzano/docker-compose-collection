@@ -193,14 +193,14 @@ def clean_cache():
     size_used = 0
 
     for file_name in glob.iglob(os.path.join(CONF["LOCAL_ROOT"], "**"), recursive=True):
-        if os.path.isdir(file_name):
+        if os.path.isdir(file_name) or file_name.endswith(".tmp"):
             continue
         try:
             sta = os.stat(file_name)
             a_ago = int(now - sta.st_atime)
             m_ago = int(now - sta.st_mtime)
             remove = False
-            if file_name.endswith(".json"):
+            if os.path.basename(file_name) == "index.json":
                 if m_ago > CONF["CACHE_INDEX_DURATION"]:
                     remove = True
                     log.msg(f"{file_name} modified {m_ago} s ago: erased {sta.st_size} bytes")
