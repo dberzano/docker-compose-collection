@@ -12,6 +12,7 @@ services:
       - "6080:80"
       - "6443:443"
     volumes:
+      # paths beginning with ./ are relative to the dir containing this docker-compose.yml file
       - "./persistent/letsencrypt:/letsencrypt:ro"                      # certificates
       - "./frontend/frontend.conf.template:/frontend.conf.template:ro"  # configuration file
     depends_on:
@@ -24,12 +25,9 @@ services:
       REVPROXY_REDIRECT_INVALID_TO: "https://start.duckduckgo.com"
       REVPROXY_BACKEND_PREFIX: "http://ali-ci.cern.ch"
       REVPROXY_LOCAL_ROOT: "/cache"
-    #ports:
-    #  # external:internal
-    #  - "6080:8181"
+      REVPROXY_CACHE_FILE_DURATION: 2592000  # one month
     command: /revproxy/revproxy.py
     volumes:
       # paths beginning with ./ are relative to the dir containing this docker-compose.yml file
       - "./persistent/revproxy_cache:/cache:rw"  # cache
-      - "./revproxy:/revproxy:ro"                # executable
     restart: always

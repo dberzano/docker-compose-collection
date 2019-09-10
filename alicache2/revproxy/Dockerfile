@@ -5,3 +5,4 @@ RUN curl -L --output /usr/local/bin/certbot-auto https://dl.eff.org/certbot-auto
     rm -rf /var/lib/apt/lists/*
 RUN pip install twisted klein requests pylint && \
     rm -rf /root/.cache
+ADD revproxy.py /revproxy/revproxy.py
