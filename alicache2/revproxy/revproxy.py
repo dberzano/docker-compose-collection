@@ -8,9 +8,10 @@
    - [X] serve cached content if file exists
    - [ ] automatically kill/restart the service from time to time
    - [ ] manage cache growth in a smart way
-   - [ ] make requests wait if same file is already being downloaded
+   - [X] make requests wait if same file is already being downloaded
    - [X] clean up all .tmp at start
-   - [ ] handle caching in a non-blocking way (async/await)
+   - [X] handle caching in a non-blocking way (async/await)
+   - [ ] remove return bool from `robust_get` (it is not used in any case)
 """
 
 import os
@@ -55,11 +56,10 @@ async def robust_get(url, dest):
     dest_tmp = dest + ".tmp"
     if os.path.isfile(dest_tmp):
         # TODO there must be a better way without (explicit) threads
-        log.msg(f"{url} -> {dest}: already being cached: waiting")
+        log.msg(f"{url} -> {dest}: being cached: waiting")
         while os.path.isfile(dest_tmp):
-            #log.msg("hold my beer")
             await ensureDeferred(deferLater(reactor, 1, lambda: None))  # non-blocking sleep
-        return True  # ...it may have failed as a matter of fact
+        return True  # ...it may have failed as a matter of fact: TODO: remove exitcode
     else:
         # Placeholder is not there: we create it (safe, because it's blocking so far)
         dest_dir = os.path.dirname(dest)
@@ -86,22 +86,23 @@ def robust_get_sync(url, dest, dest_tmp):
     for i in range(CONF["HTTP_CONN_RETRIES"]):
         if i > 0:
             pause_sec = 0.4 * (1.4 ** (i - 1))
-            log.msg(f"Robust {url} -> {dest} failed, retrying in {pause_sec:.2f} s")
+            log.msg(f"{url} -> {dest} failed: retrying in {pause_sec:.2f} s")
             time.sleep(pause_sec)
         try:
             # Determine the size of the file already downloaded
             size_ondisk = os.stat(dest_tmp).st_size
-            log.msg(f"Robust {url} -> {dest}: attempt {i+1}/{CONF['HTTP_CONN_RETRIES']}. "
-                    f"Already downloaded: {size_ondisk} bytes")
+            log.msg(f"{url} -> {dest}: attempt {i+1}/{CONF['HTTP_CONN_RETRIES']}: "
+                    f"{size_ondisk} bytes already there")
             if size_final != -1:
                 range_header = {"Range": f"bytes={size_ondisk}-{size_final}"}
             else:
                 range_header = {}
-            resp = requests.get(url, stream=True, timeout=CONF["HTTP_TIMEOUT_SEC"], headers=range_header)
+            resp = requests.get(url, stream=True,
+                                timeout=CONF["HTTP_TIMEOUT_SEC"], headers=range_header)
             size_partial = int(resp.headers.get("Content-Length", "-1"))
             if size_final == -1:
                 size_final = size_partial
-            log.msg(f"Robust {url} -> {dest}: gave {resp.status_code}. Left: {size_partial} bytes. "
+            log.msg(f"{url} -> {dest}: had {resp.status_code}, {size_partial} bytes left. "
                     f"Range: bytes={size_ondisk}-{size_final}")
             resp.raise_for_status()
             size_downloaded = 0
@@ -113,7 +114,7 @@ def robust_get_sync(url, dest, dest_tmp):
             if size_partial not in [size_downloaded, -1]:
                 raise RequestException  # file was only partially downloaded
             os.rename(dest_tmp, dest)  # it should not cause any error
-            log.msg(f"Robust {url} -> {dest}: OK")
+            log.msg(f"{url} -> {dest}: OK")
             return True
         except RequestException as exc:
             try:
@@ -121,7 +122,7 @@ def robust_get_sync(url, dest, dest_tmp):
             except AttributeError:
                 status_code = -1
             if status_code == 404 or i == CONF["HTTP_CONN_RETRIES"] - 1:
-                log.msg(f"Robust {url} -> {dest}: failed for good ({status_code})")
+                log.msg(f"{url} -> {dest}: giving up (last status code: {status_code})")
                 try:
                     os.unlink(dest_tmp)
                 except:
@@ -134,8 +135,6 @@ def robust_get_sync(url, dest, dest_tmp):
 async def process(req):
     """Process every URL.
     """
-
-    log.msg("*** GET here ***")
 
     orig_uri = req.uri.decode("utf-8")
     uri_comp = [x for x in orig_uri.split("/") if x]
@@ -153,13 +152,13 @@ async def process(req):
         log.msg(f"URI was normalized, {orig_uri} != {uri}: redirecting")
         req.setResponseCode(301)
         req.setHeader("Location", uri)
-        return ""
+        return ""  # empty body
 
     backend_uri = CONF["BACKEND_PREFIX"] + uri
 
-    log.msg("xxx GET here but before robust_get xxx")
     if "." in uri_comp[-1]:
-        # Has an extension -> treat as file
+        # Heuristics: has an extension ==> treat as file
+        # TODO remove `if`. `File()` already handles 404
         if await robust_get(backend_uri, local_path):
             log.msg(f"Requested file downloaded to {local_path}")
         return File(CONF["LOCAL_ROOT"])
