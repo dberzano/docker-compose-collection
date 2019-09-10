@@ -25,7 +25,7 @@ from klein import Klein
 from twisted.python import log
 from twisted.web.static import File
 from twisted.internet import threads, reactor
-from twisted.internet.task import deferLater
+from twisted.internet.task import deferLater, LoopingCall
 from twisted.internet.defer import ensureDeferred
 
 APP = Klein()
@@ -36,6 +36,8 @@ CONF = {"REDIRECT_INVALID_TO": None,
         "LOCAL_ROOT": None,
         "HTTP_CONN_RETRIES": 20,
         "HTTP_TIMEOUT_SEC": 15,
+        "CACHE_INDEX_DURATION": 60,
+        "CACHE_FILE_DURATION": 1209600,
         "HOST": "0.0.0.0",
         "PORT": 8181}
 
@@ -128,6 +130,14 @@ def robust_get_sync(url, dest, dest_tmp):
 
     return False  # if we are here there is an error
 
+def atouch(file_name):
+    """Update file access time.
+    """
+    try:
+        os.utime(file_name, (time.time(), os.stat(file_name).st_mtime))
+    except OSError:
+        pass
+
 @APP.route("/", branch=True)
 async def process(req):
     """Process every URL.
@@ -156,6 +166,7 @@ async def process(req):
     if "." in uri_comp[-1]:
         # Heuristics: has an extension ==> treat as file
         await robust_get(backend_uri, local_path)
+        atouch(local_path)
         return File(CONF["LOCAL_ROOT"])
 
     # No extension -> treat as directory index in JSON
@@ -171,6 +182,42 @@ async def process(req):
         return "{}"
 
 def clean_cache():
+    """Scan cache for old files and remove them. What is removed:
+       * Directory indices (`.json`) modified more than one minute ago
+       * All other files accessed more than 2 weeks ago
+       Please note the difference between "modified" and "accessed"!
+    """
+
+    now = time.time()
+    size_saved = 0
+    size_used = 0
+
+    for file_name in glob.iglob(os.path.join(CONF["LOCAL_ROOT"], "**"), recursive=True):
+        if os.path.isdir(file_name):
+            continue
+        try:
+            sta = os.stat(file_name)
+            a_ago = int(now - sta.st_atime)
+            m_ago = int(now - sta.st_mtime)
+            remove = False
+            if file_name.endswith(".json"):
+                if m_ago > CONF["CACHE_INDEX_DURATION"]:
+                    remove = True
+                    log.msg(f"{file_name} modified {m_ago} s ago: erased {sta.st_size} bytes")
+            elif a_ago > CONF["CACHE_FILE_DURATION"]:
+                remove = True
+                log.msg(f"{file_name} accessed {a_ago} s ago: erased {sta.st_size} bytes")
+            if remove:
+                os.unlink(file_name)
+                size_saved += sta.st_size
+            else:
+                size_used += sta.st_size
+        except OSError:
+            pass
+
+    log.msg(f"Cache: {size_used} bytes used, cleanup freed {size_saved} bytes")
+
+def sanitize_cache():
     """Cleanup cache directory from spurious `.tmp` files.
     """
     for file_name in glob.iglob(os.path.join(CONF["LOCAL_ROOT"], "**/*.tmp"), recursive=True):
@@ -186,21 +233,30 @@ def main():
     """
 
     invalid = False
+    conf_keys_to_int = ["HTTP_CONN_RETRIES", "HTTP_TIMEOUT_SEC",
+                        "CACHE_INDEX_DURATION", "CACHE_FILE_DURATION"]
 
     for k in CONF:
         CONF[k] = os.environ.get(f"REVPROXY_{k}", CONF[k])
+        print(f"Configuration: REVPROXY_{k} = {CONF[k]}")
         if CONF[k] is None:
-            print(f"ERROR in CONFiguration: REVPROXY_{k} must be set and it is missing")
+            print(f"ERROR in configuration: REVPROXY_{k} must be set and it is missing")
             invalid = True
-        else:
-            print(f"Configuration: REVPROXY_{k} = {CONF[k]}")
+        elif k in conf_keys_to_int:
+            try:
+                CONF[k] = int(CONF[k])
+            except ValueError:
+                print(f"ERROR in configuration: REVPROXY_{k} must be an integer")
+                invalid = True
 
     if invalid:
-        print("ABORTING due to CONFiguration errors, check the environment")
+        print("ABORTING due to configuration errors, check the environment")
         sys.exit(1)
 
-    clean_cache()
+    sanitize_cache()
 
+    reactor.callLater(1, LoopingCall(clean_cache).start, 60)  # pylint: disable=no-member
     APP.run(host=CONF["HOST"], port=int(CONF["PORT"]))
 
-main()
+if __name__ == "__main__":
+    main()
