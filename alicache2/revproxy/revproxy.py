@@ -20,12 +20,10 @@ import time
 import glob
 import errno
 import requests
-from random import randint
 from requests.exceptions import RequestException
 from klein import Klein
-from twisted.web.static import File
-from twisted.web.resource import Resource
 from twisted.python import log
+from twisted.web.static import File
 from twisted.internet import threads, reactor
 from twisted.internet.task import deferLater
 from twisted.internet.defer import ensureDeferred
@@ -42,37 +40,36 @@ CONF = {"REDIRECT_INVALID_TO": None,
         "PORT": 8181}
 
 async def robust_get(url, dest):
-    """Download `url` to local file `dest`. Returns `True` in case of success, `False` in case of
-       a failure. The function is robust and will retry several times, with the appropriate backoff.
-       In case of an interrupted download, it will attempt to resume it upon failure.
+    """Download `url` to local file `dest`. Returns when done, even on failure. No return value.
+       The function is robust and will retry several times, with the appropriate backoff. In case of
+       an interrupted download, it will attempt to resume it upon failure.
     """
 
     # File was cached already
     if os.path.isfile(dest):
         log.msg(f"{url} -> {dest}: cache hit")
-        return True
+        return
 
     # File will be downloaded to `.tmp` first. This part is deliberately blocking
     dest_tmp = dest + ".tmp"
     if os.path.isfile(dest_tmp):
-        # TODO there must be a better way without (explicit) threads
         log.msg(f"{url} -> {dest}: being cached: waiting")
         while os.path.isfile(dest_tmp):
             await ensureDeferred(deferLater(reactor, 1, lambda: None))  # non-blocking sleep
-        return True  # ...it may have failed as a matter of fact: TODO: remove exitcode
-    else:
-        # Placeholder is not there: we create it (safe, because it's blocking so far)
-        dest_dir = os.path.dirname(dest)
-        try:
-            os.makedirs(dest_dir)
-        except OSError as exc:
-            if not os.path.isdir(dest_dir) or exc.errno != errno.EEXIST:
-                raise exc
-        with open(dest_tmp, "wb"):
-            pass
+        return  # note: disappearance of `.tmp` may also mean failure (it's handled outside)
+
+    # Placeholder is not there: we create it (safe, because it's blocking so far)
+    dest_dir = os.path.dirname(dest)
+    try:
+        os.makedirs(dest_dir)
+    except OSError as exc:
+        if not os.path.isdir(dest_dir) or exc.errno != errno.EEXIST:
+            raise exc
+    with open(dest_tmp, "wb"):
+        pass
 
     # Non-blocking part: run in a thread
-    return await ensureDeferred(threads.deferToThread(robust_get_sync, url, dest, dest_tmp))
+    await ensureDeferred(threads.deferToThread(robust_get_sync, url, dest, dest_tmp))
 
 def robust_get_sync(url, dest, dest_tmp):
     """Synchronous part of `robust_get()`. Takes three arguments: the `url` to download, the `dest`,
@@ -125,7 +122,7 @@ def robust_get_sync(url, dest, dest_tmp):
                 log.msg(f"{url} -> {dest}: giving up (last status code: {status_code})")
                 try:
                     os.unlink(dest_tmp)
-                except:
+                except OSError:
                     pass
                 return False
 
@@ -158,30 +155,29 @@ async def process(req):
 
     if "." in uri_comp[-1]:
         # Heuristics: has an extension ==> treat as file
-        # TODO remove `if`. `File()` already handles 404
-        if await robust_get(backend_uri, local_path):
-            log.msg(f"Requested file downloaded to {local_path}")
+        await robust_get(backend_uri, local_path)
         return File(CONF["LOCAL_ROOT"])
 
     # No extension -> treat as directory index in JSON
     backend_uri = backend_uri + "/"
     local_path = os.path.join(local_path, "index.json")
     req.setHeader("Content-Type", "application/json")
-    if not await robust_get(backend_uri, local_path):
+    await robust_get(backend_uri, local_path)
+    try:
+        with open(local_path) as json_fp:
+            return json_fp.read()
+    except OSError:
         req.setResponseCode(404)
-        return ""
-    with open(local_path) as json_fp:
-        cont = json_fp.read()
-    return cont
+        return "{}"
 
 def clean_cache():
     """Cleanup cache directory from spurious `.tmp` files.
     """
-    for fn in glob.iglob(os.path.join(CONF["LOCAL_ROOT"], "**/*.tmp"), recursive=True):
-        print(f"Removing spurious {fn}")
+    for file_name in glob.iglob(os.path.join(CONF["LOCAL_ROOT"], "**/*.tmp"), recursive=True):
+        print(f"Removing spurious {file_name}")
         try:
-            os.unlink(fn)
-        except:
+            os.unlink(file_name)
+        except OSError:
             pass
 
 def main():
