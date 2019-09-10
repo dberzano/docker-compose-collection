@@ -9,20 +9,25 @@
    - [ ] automatically kill/restart the service from time to time
    - [ ] manage cache growth in a smart way
    - [ ] make requests wait if same file is already being downloaded
-   - [ ] clean up all .tmp at start
+   - [X] clean up all .tmp at start
    - [ ] handle caching in a non-blocking way (async/await)
 """
 
 import os
 import sys
 import time
+import glob
 import errno
 import requests
+from random import randint
 from requests.exceptions import RequestException
 from klein import Klein
 from twisted.web.static import File
 from twisted.web.resource import Resource
 from twisted.python import log
+from twisted.internet import threads, reactor
+from twisted.internet.task import deferLater
+from twisted.internet.defer import ensureDeferred
 
 APP = Klein()
 
@@ -30,49 +35,51 @@ APP = Klein()
 CONF = {"REDIRECT_INVALID_TO": None,
         "BACKEND_PREFIX": None,
         "LOCAL_ROOT": None,
-        "HTTP_CONN_RETRIES": 10,
+        "HTTP_CONN_RETRIES": 20,
         "HTTP_TIMEOUT_SEC": 15,
         "HOST": "0.0.0.0",
         "PORT": 8181}
 
-def robust_get(url, dest):
+async def robust_get(url, dest):
     """Download `url` to local file `dest`. Returns `True` in case of success, `False` in case of
        a failure. The function is robust and will retry several times, with the appropriate backoff.
        In case of an interrupted download, it will attempt to resume it upon failure.
     """
 
-    #log.msg("Funny blocking part")
-    #time.sleep(5)
-
-    # File is being downloaded: wait for it (TODO blocking)
-    dest_tmp = dest + ".tmp"
-    while os.path.isfile(dest_tmp):
-        log.msg(f"Request {url} -> {dest} is being downloaded: waiting for completion")
-        time.sleep(1)
-
-    # File is available: nothing to do (non-blocking)
+    # File was cached already
     if os.path.isfile(dest):
-        log.msg(f"Request already cached: {url} -> {dest}")
+        log.msg(f"{url} -> {dest}: cache hit")
         return True
 
-    log.msg(f"Robust request: {url} -> {dest}")
+    # File will be downloaded to `.tmp` first. This part is deliberately blocking
+    dest_tmp = dest + ".tmp"
+    if os.path.isfile(dest_tmp):
+        # TODO there must be a better way without (explicit) threads
+        log.msg(f"{url} -> {dest}: already being cached: waiting")
+        while os.path.isfile(dest_tmp):
+            #log.msg("hold my beer")
+            await ensureDeferred(deferLater(reactor, 1, lambda: None))  # non-blocking sleep
+        return True  # ...it may have failed as a matter of fact
+    else:
+        # Placeholder is not there: we create it (safe, because it's blocking so far)
+        dest_dir = os.path.dirname(dest)
+        try:
+            os.makedirs(dest_dir)
+        except OSError as exc:
+            if not os.path.isdir(dest_dir) or exc.errno != errno.EEXIST:
+                raise exc
+        with open(dest_tmp, "wb"):
+            pass
 
-    # Prepare the cache directory
-    dest_dir = os.path.dirname(dest)
-    try:
-        os.makedirs(dest_dir)
-    except OSError as exc:
-        if not os.path.isdir(dest_dir) or exc.errno != errno.EEXIST:
-            raise exc
+    # Non-blocking part: run in a thread
+    return await ensureDeferred(threads.deferToThread(robust_get_sync, url, dest, dest_tmp))
 
-    # File will be downloaded here first. Clean up stale, create dummy
-    try:
-        os.unlink(dest_tmp)
-    except:
-        pass
-    with open(dest_tmp, "wb"):
-        pass
-    log.msg(f"Just created placeholder {dest_tmp}")
+def robust_get_sync(url, dest, dest_tmp):
+    """Synchronous part of `robust_get()`. Takes three arguments: the `url` to download, the `dest`,
+       and the `dest_tmp`. File will be downloaded to `dest_tmp` first, and then it will be moved
+       with an atomic operation to `dest` when done. In case of errors, it will be deleted instead.
+       Returns `True` on success, `False` on unrecoverable download failure.
+    """
 
     # Download file in streaming mode
     size_final = -1
@@ -124,14 +131,16 @@ def robust_get(url, dest):
     return False  # if we are here there is an error
 
 @APP.route("/", branch=True)
-def process(req):
+async def process(req):
     """Process every URL.
     """
+
+    log.msg("*** GET here ***")
 
     orig_uri = req.uri.decode("utf-8")
     uri_comp = [x for x in orig_uri.split("/") if x]
     if not uri_comp or uri_comp[0] != "TARS":
-        # Illegal URL: redirect to the ALICE institutional website
+        # Illegal URL: redirect to a fallback site
         req.setResponseCode(301)  # moved permanently
         req.setHeader("Location", CONF["REDIRECT_INVALID_TO"])
         return ""
@@ -148,9 +157,10 @@ def process(req):
 
     backend_uri = CONF["BACKEND_PREFIX"] + uri
 
+    log.msg("xxx GET here but before robust_get xxx")
     if "." in uri_comp[-1]:
         # Has an extension -> treat as file
-        if robust_get(backend_uri, local_path):
+        if await robust_get(backend_uri, local_path):
             log.msg(f"Requested file downloaded to {local_path}")
         return File(CONF["LOCAL_ROOT"])
 
@@ -158,12 +168,22 @@ def process(req):
     backend_uri = backend_uri + "/"
     local_path = os.path.join(local_path, "index.json")
     req.setHeader("Content-Type", "application/json")
-    if not robust_get(backend_uri, local_path):
+    if not await robust_get(backend_uri, local_path):
         req.setResponseCode(404)
         return ""
     with open(local_path) as json_fp:
         cont = json_fp.read()
     return cont
+
+def clean_cache():
+    """Cleanup cache directory from spurious `.tmp` files.
+    """
+    for fn in glob.iglob(os.path.join(CONF["LOCAL_ROOT"], "**/*.tmp"), recursive=True):
+        print(f"Removing spurious {fn}")
+        try:
+            os.unlink(fn)
+        except:
+            pass
 
 def main():
     """Entry point. Sets configuration variables from the environment, checks them, and starts the
@@ -183,6 +203,8 @@ def main():
     if invalid:
         print("ABORTING due to CONFiguration errors, check the environment")
         sys.exit(1)
+
+    clean_cache()
 
     APP.run(host=CONF["HOST"], port=int(CONF["PORT"]))
 
