@@ -5,12 +5,12 @@
    What is left TODO, what was already done
    - [X] handle 206
    - [ ] handle 206 when they are not supported by the backend!
-   - [ ] serve cached content if file exists
+   - [X] serve cached content if file exists
    - [ ] automatically kill/restart the service from time to time
    - [ ] manage cache growth in a smart way
    - [ ] make requests wait if same file is already being downloaded
    - [ ] clean up all .tmp at start
-   - [ ] handle requests in parallel, maybe with a thread pool?
+   - [ ] handle caching in a non-blocking way (async/await)
 """
 
 import os
@@ -41,6 +41,20 @@ def robust_get(url, dest):
        In case of an interrupted download, it will attempt to resume it upon failure.
     """
 
+    #log.msg("Funny blocking part")
+    #time.sleep(5)
+
+    # File is being downloaded: wait for it (TODO blocking)
+    dest_tmp = dest + ".tmp"
+    while os.path.isfile(dest_tmp):
+        log.msg(f"Request {url} -> {dest} is being downloaded: waiting for completion")
+        time.sleep(1)
+
+    # File is available: nothing to do (non-blocking)
+    if os.path.isfile(dest):
+        log.msg(f"Request already cached: {url} -> {dest}")
+        return True
+
     log.msg(f"Robust request: {url} -> {dest}")
 
     # Prepare the cache directory
@@ -52,7 +66,6 @@ def robust_get(url, dest):
             raise exc
 
     # File will be downloaded here first. Clean up stale, create dummy
-    dest_tmp = dest + ".tmp"
     try:
         os.unlink(dest_tmp)
     except:
