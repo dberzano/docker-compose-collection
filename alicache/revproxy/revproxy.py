@@ -9,6 +9,7 @@ import sys
 import time
 import glob
 import errno
+from enum import Enum
 import requests
 from requests.exceptions import RequestException
 from klein import Klein
@@ -32,24 +33,53 @@ CONF = {"REDIRECT_INVALID_TO": None,
         "HOST": "0.0.0.0",
         "PORT": 8181}
 
-async def robust_get(url, dest):
-    """Download `url` to local file `dest`. Returns when done, even on failure. No return value.
-       The function is robust and will retry several times, with the appropriate backoff. In case of
-       an interrupted download, it will attempt to resume it upon failure.
+class GetRes(Enum):
+    """Return value for `robust_get`.
     """
+    CACHE_HIT = 1  # file is already in cache
+    END_WAIT = 2   # ended waiting for partial download to disappear (may not mean success!)
+    END_FETCH = 3  # ended fetching the file
+    MUST_WAIT = 4  # wait timeout hit: must wait more (prevents client timeout)
+
+async def robust_get(url, dest, wait_timeout=None):
+    """Download `url` to local file `dest`. The function is robust and will retry several times,
+       with the appropriate backoff. In case of an interrupted download, it will attempt to resume
+       it upon failure.
+
+       In general, when the file is already being cached by a separate thread, this function waits
+       for the caching operation to be completed indefinitely before proceeding. This may cause
+       undesired timeouts. It is therefore possible to set the `wait_timeout` option to a value in
+       seconds: after waiting for that many seconds, the function returns, indicating the caller
+       that further wait is needed (`GetRes.MUST_WAIT`).
+
+       In case the file is available in the cache, or a download failure status for the file is
+       cached, `GetRes.CACHE_HIT` is returned right away. In case we have ended waiting for the
+       background download operation, `GetRes.END_WAIT` is returned: note that this just means that
+       the file download finished, it does not indicate whether it was successful or not!
+
+       In case no timeout is given, when the file has been downloaded it returns `GetRes.END_FETCH`.
+    """
+
+    # Non-existence of file was cached already
+    if os.path.isfile(dest + ".404"):
+        log.msg(f"{url} -> {dest}: not found status cached")
+        return GetRes.CACHE_HIT
 
     # File was cached already
     if os.path.isfile(dest):
         log.msg(f"{url} -> {dest}: cache hit")
-        return
+        return GetRes.CACHE_HIT
 
     # File will be downloaded to `.tmp` first. This part is deliberately blocking
     dest_tmp = dest + ".tmp"
     if os.path.isfile(dest_tmp):
         log.msg(f"{url} -> {dest}: being cached: waiting")
+        time0 = time.time()
         while os.path.isfile(dest_tmp):
             await ensureDeferred(deferLater(reactor, 1, lambda: None))  # non-blocking sleep
-        return  # note: disappearance of `.tmp` may also mean failure (it's handled outside)
+            if wait_timeout and time.time() - time0 > wait_timeout:
+                return GetRes.MUST_WAIT
+        return GetRes.END_WAIT  # note: disappearance of `.tmp` may also mean failure
 
     # Placeholder is not there: we create it (safe, because it's blocking so far)
     dest_dir = os.path.dirname(dest)
@@ -62,7 +92,10 @@ async def robust_get(url, dest):
         pass
 
     # Non-blocking part: run in a thread
-    await ensureDeferred(threads.deferToThread(robust_get_sync, url, dest, dest_tmp))
+    threads.deferToThread(robust_get_sync, url, dest, dest_tmp)
+    if wait_timeout:
+        return GetRes.MUST_WAIT
+    return GetRes.END_FETCH
 
 def robust_get_sync(url, dest, dest_tmp):
     """Synchronous part of `robust_get()`. Takes three arguments: the `url` to download, the `dest`,
@@ -113,6 +146,8 @@ def robust_get_sync(url, dest, dest_tmp):
                 status_code = -1
             if status_code == 404 or i == CONF["HTTP_CONN_RETRIES"] - 1:
                 log.msg(f"{url} -> {dest}: giving up (last status code: {status_code})")
+                with open(dest + ".404", "wb"):  # caching 404 status
+                    pass
                 try:
                     os.unlink(dest_tmp)
                 except OSError:
@@ -130,7 +165,7 @@ def atouch(file_name):
         pass
 
 @APP.route("/", branch=True)
-async def process(req):
+async def process(req):  # pylint: disable=too-many-return-statements
     """Process every URL.
     """
 
@@ -156,7 +191,12 @@ async def process(req):
 
     if "." in uri_comp[-1]:
         # Heuristics: has an extension ==> treat as file
-        await robust_get(backend_uri, local_path)
+        get_status = await robust_get(backend_uri, local_path, wait_timeout=12)
+        if get_status == GetRes.MUST_WAIT:
+            # Trick client into "trying again" by redirecting to self
+            req.setResponseCode(302)
+            req.setHeader("Location", uri)
+            return ""
         atouch(local_path)
         if CONF["REDIRECT_STATIC_PREFIX"]:
             # Using an external service to provide the static file: redirect
@@ -197,11 +237,13 @@ def clean_cache():
             a_ago = int(now - sta.st_atime)
             m_ago = int(now - sta.st_mtime)
             remove = False
-            if os.path.basename(file_name) == "index.json":
+            if os.path.basename(file_name) == "index.json" or file_name.endswith(".404"):
+                # Consider modification time for directory indices and 404s
                 if m_ago > CONF["CACHE_INDEX_DURATION"]:
                     remove = True
                     log.msg(f"{file_name} modified {m_ago} s ago: erased {sta.st_size} bytes")
             elif a_ago > CONF["CACHE_FILE_DURATION"]:
+                # Consider access time for all the other files
                 remove = True
                 log.msg(f"{file_name} accessed {a_ago} s ago: erased {sta.st_size} bytes")
             if remove:

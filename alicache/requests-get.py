@@ -4,14 +4,15 @@ import os
 import sys
 import requests
 
-URL = "http://localhost/TARS/slc7_x86-64/GEANT4/GEANT4-v10.4.2-4.slc7_x86-64.tar.gz"
+URL = "http://localhost/TARS/slc7_x86-64/store/39/39d67b331c375f4d90ce6bc1eeb3fa4fbcf10f44/GCC-Toolchain-v7.3.0-alice1-9.slc7_x86-64.tar.gz"
+#URL = "http://localhost/TARS/slc7_x86-64/GEANT4/GEANT4-v10.4.2-4.slc7_x86-64.tar.gz"
 #URL = "http://localhost/TARS/slc7_x86-64/store/ec/ecd0e55c1aac610a658e461cf525e72607c5897f/autotools-v1.5.0-8.slc7_x86-64.tar.gz"
 #URL = "http://localhost:8181/TARS/slc7_x86-64/store/ec/ecd0e55c1aac610a658e461cf525e72607c5897f/autotools-v1.5.0-8.slc7_x86-64.tar.gz"
 #URL = "https://localhost/static/TARS/slc7_x86-64/store/ec/ecd0e55c1aac610a658e461cf525e72607c5897f/autotools-v1.5.0-8.slc7_x86-64.tar.gz"
 #URL = "http://ali-ci.cern.ch/TARS/slc7_x86-64/store/ec/ecd0e55c1aac610a658e461cf525e72607c5897f/autotools-v1.5.0-8.slc7_x86-64.tar.gz"
 DEST = "destination.tar.gz"
 
-resp = requests.get(URL, stream=True, verify=False, headers={'Accept-Encoding': 'identity'})
+resp = requests.get(URL, stream=True, verify=False, timeout=15)
 try:
     os.unlink(DEST)
 except:
