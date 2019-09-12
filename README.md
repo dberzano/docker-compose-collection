@@ -9,12 +9,12 @@ Generic instructions
 --------------------
 Start (rebuild the containers, and start in background):
 
-    docker-compose up --build --detach
+    docker-compose up --build --detach --force-recreate
 
 Check status:
 
     docker-compose ps
-    docker-compose logs
+    docker-compose logs -f --tail=100
 
 Stop:
 

@@ -40,12 +40,12 @@ You must be in the directory containing the `docker-compose.yml` file to run the
 
 Start with:
 
-    docker-compose up --build --detach
+    docker-compose up --build --detach --force-recreate
 
 Services will start in the background. Check with:
 
     docker-compose ps
-    docker-compose logs
+    docker-compose logs -f --tail=100
 
 Stop with:
 
