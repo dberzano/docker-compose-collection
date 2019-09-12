@@ -92,9 +92,10 @@ async def robust_get(url, dest, wait_timeout=None):
         pass
 
     # Non-blocking part: run in a thread
-    threads.deferToThread(robust_get_sync, url, dest, dest_tmp)
+    defe_get = threads.deferToThread(robust_get_sync, url, dest, dest_tmp)
     if wait_timeout:
         return GetRes.MUST_WAIT
+    await defe_get
     return GetRes.END_FETCH
 
 def robust_get_sync(url, dest, dest_tmp):
