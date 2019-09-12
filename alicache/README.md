@@ -67,6 +67,9 @@ Shell scripts
   environment as provided by containers
 * `test-download.sh`: play with this script to test if the service works (you will need to edit it a
   lot, this is not meant for production)
+* `requests-get.py`: Python script (Python 2- and 3-compatible) performing a test download using
+  [requests](https://2.python-requests.org/en/master/) in streaming mode (you will need to edit it
+  as well, this is not meant for production)
 
 Credits
 -------

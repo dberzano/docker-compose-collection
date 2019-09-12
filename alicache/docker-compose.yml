@@ -15,6 +15,7 @@ services:
       # paths beginning with ./ are relative to the dir containing this docker-compose.yml file
       - "./data/certbot/conf:/etc/letsencrypt:ro"
       - "./data/certbot/www:/var/www/certbot:ro"
+      - "./data/revproxy_cache:/var/www/static:ro"  # populated by revproxy!
       - "./frontend/frontend.conf.template:/frontend.conf.template:ro"  # configuration file
     depends_on:
       - certbot
@@ -37,6 +38,7 @@ services:
       REVPROXY_BACKEND_PREFIX: "http://ali-ci.cern.ch"
       REVPROXY_LOCAL_ROOT: "/cache"
       REVPROXY_CACHE_FILE_DURATION: 2592000  # one month
+      REVPROXY_REDIRECT_STATIC_PREFIX: "/static"  # refers to nginx
     command: /revproxy/revproxy.py
     volumes:
       # paths beginning with ./ are relative to the dir containing this docker-compose.yml file

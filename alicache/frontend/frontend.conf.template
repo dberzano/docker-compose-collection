@@ -34,6 +34,12 @@ server {
   # Disable buffering (not needed)
   proxy_max_temp_file_size 0;
 
+  # Serve static files
+  location /static {
+    root /var/www;  # will append /static because it's the location
+  }
+
+  # We go through the proxy to trigger the download; proxy will redirect us back here
   location / {
     # This location regexp is a reverse proxy to another server
     proxy_pass http://revproxy:8181;

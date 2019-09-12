@@ -22,6 +22,7 @@ APP = Klein()
 
 # Configurable by the user
 CONF = {"REDIRECT_INVALID_TO": None,
+        "REDIRECT_STATIC_PREFIX": "",
         "BACKEND_PREFIX": None,
         "LOCAL_ROOT": None,
         "HTTP_CONN_RETRIES": 20,
@@ -157,6 +158,12 @@ async def process(req):
         # Heuristics: has an extension ==> treat as file
         await robust_get(backend_uri, local_path)
         atouch(local_path)
+        if CONF["REDIRECT_STATIC_PREFIX"]:
+            # Using an external service to provide the static file: redirect
+            req.setResponseCode(302)  # temporary redirect
+            req.setHeader("Location", CONF["REDIRECT_STATIC_PREFIX"] + uri)
+            return ""
+        # Serve file directly otherwise (note: problems found when client is Python requests)
         return File(CONF["LOCAL_ROOT"])
 
     # No extension -> treat as directory index in JSON
