@@ -173,8 +173,8 @@ async def process(req):  # pylint: disable=too-many-return-statements
     orig_uri = req.uri.decode("utf-8")
     uri_comp = [x for x in orig_uri.split("/") if x]
     if not uri_comp or uri_comp[0] != "TARS":
-        # Illegal URL: redirect to a fallback site
-        req.setResponseCode(301)  # moved permanently
+        # Illegal URL: redirect to a fallback site (but tell client not to cache it)
+        req.setResponseCode(302)
         req.setHeader("Location", CONF["REDIRECT_INVALID_TO"])
         return ""
 
@@ -195,13 +195,13 @@ async def process(req):  # pylint: disable=too-many-return-statements
         get_status = await robust_get(backend_uri, local_path, wait_timeout=12)
         if get_status == GetRes.MUST_WAIT:
             # Trick client into "trying again" by redirecting to self
-            req.setResponseCode(302)
+            req.setResponseCode(307)  # temporary redirect
             req.setHeader("Location", uri)
             return ""
         atouch(local_path)
         if CONF["REDIRECT_STATIC_PREFIX"]:
             # Using an external service to provide the static file: redirect
-            req.setResponseCode(302)  # temporary redirect
+            req.setResponseCode(302)  # found
             req.setHeader("Location", CONF["REDIRECT_STATIC_PREFIX"] + uri)
             return ""
         # Serve file directly otherwise (note: problems found when client is Python requests)
